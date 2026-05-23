@@ -236,10 +236,10 @@ action_scale:
 motion:
   motion_cfgs:
     lafan:
-      path: ../any4hdmi/output/lafan
+      path: ../any4hdmi-lafan
       weight: 1.0
       full_motion: true
-  motion_path: ../any4hdmi/output/lafan
+  motion_path: ../any4hdmi-lafan
   future_steps:
   - -8
   - -4

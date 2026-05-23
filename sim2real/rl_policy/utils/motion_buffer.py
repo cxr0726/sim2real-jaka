@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 import numpy as np
 import zmq
+import mujoco
 
 from loguru import logger
 from sim2real.config.robots.base import RobotCfg
@@ -57,6 +58,40 @@ class RealtimeMotionBuffer:
         self._joint_pos_frames: list[np.ndarray] = []
         self._body_pos_w_frames: list[np.ndarray] = []
         self._body_quat_w_frames: list[np.ndarray] = []
+
+        # Resolve robot's default posture via forward kinematics on its MJCF model
+        try:
+            mjcf_path = self.robot_cfg.resolve_mjcf_path()
+            mj_model = mujoco.MjModel.from_xml_path(str(mjcf_path))
+            mj_data = mujoco.MjData(mj_model)
+
+            if self.robot_cfg.default_qpos:
+                mj_data.qpos[:len(self.robot_cfg.default_qpos)] = self.robot_cfg.default_qpos
+            mujoco.mj_forward(mj_model, mj_data)
+
+            joint_qpos_indices = []
+            for joint_name in self.joint_names:
+                joint_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+                if joint_id < 0:
+                    raise ValueError(f"Failed to resolve joint name in MJCF: {joint_name}")
+                joint_qpos_indices.append(int(mj_model.jnt_qposadr[joint_id]))
+
+            body_ids = []
+            for body_name in self.body_names:
+                body_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+                if body_id < 0:
+                    raise ValueError(f"Failed to resolve body name in MJCF: {body_name}")
+                body_ids.append(int(body_id))
+
+            self._default_joint_pos = np.asarray(mj_data.qpos[joint_qpos_indices], dtype=np.float32)
+            self._default_body_pos_w = np.asarray(mj_data.xpos[body_ids], dtype=np.float32)
+            self._default_body_quat_w = np.asarray(mj_data.xquat[body_ids], dtype=np.float32)
+            logger.info("Initialized default G1 standing posture via MuJoCo FK successfully.")
+        except Exception as exc:
+            logger.warning(f"Failed to initialize default posture via MuJoCo FK: {exc}. Falling back to zeros.")
+            self._default_joint_pos = np.zeros(self._num_joints, dtype=np.float32)
+            self._default_body_pos_w = np.zeros((self._num_bodies, 3), dtype=np.float32)
+            self._default_body_quat_w = np.tile(self._identity_quat[None, :], (self._num_bodies, 1))
         self._motion_id_template = np.zeros((1, self.future_steps.shape[0]), dtype=np.int64)
         self._step_template = self.future_steps.reshape(1, -1)
         self._zmq_context = zmq.Context.instance()
@@ -183,9 +218,9 @@ class RealtimeMotionBuffer:
         body_quat_w_out: np.ndarray,
     ) -> None:
         if not self._timestamps_ns:
-            joint_pos_out.fill(0.0)
-            body_pos_w_out.fill(0.0)
-            body_quat_w_out[:] = self._identity_quat
+            joint_pos_out[:] = self._default_joint_pos[None, :]
+            body_pos_w_out[:] = self._default_body_pos_w[None, :, :]
+            body_quat_w_out[:] = self._default_body_quat_w[None, :, :]
             return
 
         if len(self._timestamps_ns) == 1:
@@ -254,12 +289,12 @@ class RealtimeMotionBuffer:
         body_ang_vel_w = np.zeros((1, num_steps, self._num_bodies, 3), dtype=np.float32)
 
         with self._lock:
-            self._fill_sample_frames_locked(
-                target_times_ns,
-                joint_pos[0],
-                body_pos_w[0],
-                body_quat_w[0],
-            )
+                self._fill_sample_frames_locked(
+                    target_times_ns,
+                    joint_pos[0],
+                    body_pos_w[0],
+                    body_quat_w[0],
+                )
 
         motion_data = MotionData(
             motion_id=self._motion_id_template,

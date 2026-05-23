@@ -66,7 +66,13 @@ esac
 SERVICE_DIR="$ROOT_DIR/external/XRoboToolkit-PC-Service"
 PYBIND_DIR="$ROOT_DIR/external/XRoboToolkit-PC-Service-Pybind"
 SDK_DIR="$SERVICE_DIR/RoboticsService/PXREARobotSDK"
-PYTHON_BIN="$ROOT_DIR/venv/teleop/.venv/bin/python"
+# Locate the conda 'teleop' environment python
+TELEOP_CONDA_PREFIX=$(conda info --envs | awk '/^teleop / {print $NF}')
+if [[ -z "$TELEOP_CONDA_PREFIX" ]]; then
+  echo "Conda environment 'teleop' not found. Run 'conda create -n teleop python=3.10' first." >&2
+  exit 1
+fi
+PYTHON_BIN="$TELEOP_CONDA_PREFIX/bin/python"
 
 if [[ ! -d "$SERVICE_DIR" ]]; then
   echo "Missing repo: $SERVICE_DIR" >&2
@@ -84,7 +90,7 @@ if [[ ! -d "$SDK_DIR" ]]; then
 fi
 
 if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "Missing teleop environment at $PYTHON_BIN. Run 'uv --project venv/teleop sync' first." >&2
+  echo "Missing python in conda teleop environment at $PYTHON_BIN. Run 'conda create -n teleop python=3.10' first." >&2
   exit 1
 fi
 
@@ -126,11 +132,11 @@ fi
 
 export pybind11_DIR
 pybind11_DIR=$(
-  uv --project "$ROOT_DIR/venv/teleop" run python -c "import pybind11; print(pybind11.get_cmake_dir())"
+  "$PYTHON_BIN" -c "import pybind11; print(pybind11.get_cmake_dir())"
 )
 
 echo "[setup_xrobot_pybind] pybind11_DIR=$pybind11_DIR"
-uv --project "$ROOT_DIR/venv/teleop" pip uninstall --python "$PYTHON_BIN" xrobotoolkit_sdk >/dev/null 2>&1 || true
-uv --project "$ROOT_DIR/venv/teleop" pip install --python "$PYTHON_BIN" -e "$PYBIND_DIR"
+"$PYTHON_BIN" -m pip uninstall -y xrobotoolkit_sdk >/dev/null 2>&1 || true
+"$PYTHON_BIN" -m pip install -e "$PYBIND_DIR"
 
 echo "[setup_xrobot_pybind] xrobotoolkit_sdk installed"

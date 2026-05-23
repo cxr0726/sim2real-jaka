@@ -1,0 +1,37 @@
+[project]
+name = "hdmi-sim2real"
+version = "0.1.0"
+description = "Sim-to-sim and sim-to-real code for HDMI humanoid control"
+readme = "README.md"
+authors = [{ name = "HDMI Contributors" }]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "mujoco",
+    "loguru",
+    "pyyaml",
+    "scipy",
+    "torch",
+    "onnxruntime",
+    "pynput",
+    "ipdb",
+    "termcolor",
+    "sshkeyboard",
+    "pygame",
+    "zmq",
+    "tqdm",
+    "pyvicon-datastream",
+    "unitree-sdk2py",
+]
+
+[project.urls]
+Homepage = "https://hdmi-humanoid.github.io/"
+Repository = "https://github.com/EGalahad/sim2real"
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+unitree-sdk2py = { git = "https://github.com/EGalahad/unitree_sdk2_python.git" }
+
+[tool.setuptools]
+packages = ["utils"]

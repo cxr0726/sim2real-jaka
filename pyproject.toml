@@ -7,7 +7,7 @@ authors = [{ name = "HDMI Contributors" }]
 requires-python = "==3.10.*"
 dependencies = [
     "mujoco",
-    "mjhub @ git+https://github.com/EGalahad/mjhub.git@main",
+    #"mjhub @ git+https://github.com/EGalahad/mjhub.git@main",
     "loguru",
     "pyyaml",
     "scipy",
@@ -19,8 +19,8 @@ dependencies = [
     "pyzmq",
     "tqdm",
     "tyro",
-    "unitree-sdk2py @ git+https://github.com/EGalahad/unitree_sdk2_python.git",
-    "any4hdmi @ git+https://github.com/EGalahad/any4hdmi.git@main",
+    #"unitree-sdk2py @ git+https://github.com/EGalahad/unitree_sdk2_python.git",
+    #"any4hdmi @ git+https://github.com/EGalahad/any4hdmi.git@main",
 ]
 
 # [project.optional-dependencies]

@@ -265,7 +265,7 @@ G1_CFG = RobotCfg(
     },
     joint_armature=G1_MODE_15_JOINT_ARMATURE,
     joint_frictionloss=G1_MODE_15_JOINT_FRICTIONLOSS,
-    mjcf_path="hf://elijahgalahad/g1_xmls@main/g1-mode_13_15.xml",
+    mjcf_path="g1_xmls/g1-mode_13_15.xml",
     default_qpos=(
         0.0,
         0.0,

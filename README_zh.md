@@ -33,3 +33,16 @@ uv run sim2real/rl_policy/tracking.py \
 - [离线动作跟踪教程](https://egalahad.github.io/sim2real/zh-Hans/tutorials/offline-motion-tracking)
 - [Pico Teleoperation 教程](https://egalahad.github.io/sim2real/zh-Hans/tutorials/pico-teleoperation)
 - [Motion Recording 教程](https://egalahad.github.io/sim2real/zh-Hans/tutorials/motion-recording)
+
+
+## 1. Start the Pico retarget publisher
+
+```bash
+python sim2real/teleop/pico_retarget_pub.py --bind tcp://*:28701 --publish_hz 50 --actual_human_height 1.80
+```
+
+## 2. Inspect the retarget in realtime
+
+```bash
+python sim2real/teleop/realtime_viewer.py --connect tcp://127.0.0.1:28701 --viewer_hz 50
+```

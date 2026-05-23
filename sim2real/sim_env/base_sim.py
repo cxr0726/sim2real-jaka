@@ -64,6 +64,7 @@ class BaseSimulator:
         self.mj_model = load_sim_model(self.robot_cfg)
         self.mj_data = mujoco.MjData(self.mj_model)
         self.mj_model.opt.timestep = self.sim_dt
+
         # Enable the elastic band
         if self.enable_elastic_band:
             self.elastic_band = ElasticBand()

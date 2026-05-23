@@ -4,11 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-try:
-    from mjhub import AssetReference, resolve_asset_reference
-except ImportError:
-    from mjhub import MjcfReference as AssetReference
-    from mjhub import resolve_mjcf_reference as resolve_asset_reference
+import os
 from sim2real.utils.common import PORTS, UNITREE_LEGGED_CONST
 
 
@@ -46,7 +42,7 @@ class RobotCfg:
     joint_effort_limit: Mapping[str, float]
     joint_armature: Mapping[str, float] = field(default_factory=dict)
     joint_frictionloss: Mapping[str, float] = field(default_factory=dict)
-    mjcf_path: AssetReference | None = None
+    mjcf_path: str | Path | None = None
     default_qpos: tuple[float, ...] = ()
     qpos_root_size: int = 7
     publish_hz: float = 50.0
@@ -85,7 +81,15 @@ class RobotCfg:
     def resolve_mjcf_path(self) -> Path:
         if self.mjcf_path is None:
             raise ValueError(f"Robot '{self.name}' does not define mjcf_path")
-        return resolve_asset_reference(self.mjcf_path)
+        p = Path(self.mjcf_path)
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        p = p.resolve()
+        if not p.exists():
+            raise FileNotFoundError(
+                f"MJCF file not found for robot '{self.name}': {p}"
+            )
+        return p
 
 
 def normalize_name_list(values: Sequence[object] | None) -> list[str] | None:

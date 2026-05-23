@@ -13,7 +13,7 @@ dependencies = [
     "tqdm",
     "tyro",
     # "viser>=1.0.24",
-    "general_motion_retargeting @ git+https://github.com/EGalahad/GMR.git@codex/add-pyproject-toml",
+  #  "general_motion_retargeting @ git+https://github.com/EGalahad/GMR.git@codex/add-pyproject-toml",
     "loop-rate-limiters",
     "pybind11",
 ]

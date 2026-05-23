@@ -19,7 +19,7 @@ import numpy as np
 import tyro
 import zmq
 from loop_rate_limiters import RateLimiter
-from mjhub import temp_mjcf_with_floor
+from sim2real.sim_env.utils.mjcf import _temp_scene_with_floor
 
 from sim2real.config.robots import RobotCfg, get_robot_cfg
 from sim2real.config.robots.base import (
@@ -127,9 +127,8 @@ class NativeG1Viewer:
     def __init__(self, robot_cfg: RobotCfg) -> None:
         self.robot_cfg = robot_cfg
         self.mjcf_path = self.robot_cfg.resolve_mjcf_path()
-        with temp_mjcf_with_floor(
+        with _temp_scene_with_floor(
             self.mjcf_path,
-            ground_rgb=GROUND_RGB,
         ) as viewer_mjcf_path:
             self.model = mujoco.MjModel.from_xml_path(str(viewer_mjcf_path))
         self.data = mujoco.MjData(self.model)
