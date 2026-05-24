@@ -39,6 +39,7 @@ class BasePolicy:
         self.joint_names_simulation = list(policy_config["joint_names_simulation"])
         self.body_names_simulation = list(policy_config["body_names_simulation"])
         self.state_processor = StateProcessor(self.robot_cfg, policy_config)
+        self.state_processor.env = self
         self.action_manager = ActionManager(self.robot_cfg, policy_config)
         self.rl_dt = 1.0 / float(args.rl_rate)
         self.inference_backend = args.inference_backend
@@ -166,15 +167,25 @@ class BasePolicy:
 
         logger.info("Using policy inference backend {}", runtime_label)
 
+        action_clip = self.policy_config.get("action_clip", None)
+
         def policy(input_dict):
             output_dict = runtime_module(input_dict)
-            action = np.asarray(output_dict["action"], dtype=np.float32)
+            if "action" in output_dict:
+                action = np.asarray(output_dict["action"], dtype=np.float32)
+            elif "actions" in output_dict:
+                action = np.asarray(output_dict["actions"], dtype=np.float32)
+            else:
+                raise KeyError(f"Expected 'action' or 'actions' in output, got: {list(output_dict.keys())}")
             next_state_dict = {
                 k[1]: v
                 for k, v in output_dict.items()
                 if isinstance(k, tuple) and len(k) == 2 and k[0] == "next"
             }
             input_dict.update(next_state_dict)
+
+            if action_clip is not None:
+                action = np.clip(action, -action_clip, action_clip)
 
             q_target = self.default_dof_angles.copy()
             q_target[self.controlled_joint_indices] += action * self.action_scale
@@ -258,8 +269,19 @@ class BasePolicy:
             try:
                 idx_zero = list(self.state_processor.motion_future_steps).index(0)
                 motion_joint_pos = self.state_processor.motion_data.joint_pos[0, idx_zero]
-                num_joints = len(self.state_processor.joint_names)
-                self.align_target_joint_pos = motion_joint_pos[:num_joints].copy()
+
+                # Motion data joint order may differ from simulation joint order
+                # (e.g. IsaacLab vs MuJoCo). Use name-based matching to correctly
+                # map motion joints into simulation order.
+                motion_joint_names = list(self.state_processor.motion_joint_names)
+                sim_joint_names = list(self.state_processor.joint_names)
+                align_target = self.default_dof_angles.copy()
+                for i, sim_name in enumerate(sim_joint_names):
+                    if sim_name in motion_joint_names:
+                        motion_idx = motion_joint_names.index(sim_name)
+                        if motion_idx < len(motion_joint_pos):
+                            align_target[i] = motion_joint_pos[motion_idx]
+                self.align_target_joint_pos = align_target
             except Exception as exc:
                 logger.warning(f"Failed to get reference motion first frame joints: {exc}. Falling back to default pose.")
                 self.align_target_joint_pos = self.default_dof_angles.copy()
@@ -267,6 +289,7 @@ class BasePolicy:
             self.align_target_joint_pos = self.default_dof_angles.copy()
 
         self.state_dict["control_mode"] = "align"
+        self.need_reset_simulation = True
         logger.info(f"Control mode set to align via {source}")
 
     def set_zero_mode(self, *, source: str) -> None:
@@ -397,11 +420,38 @@ class BasePolicy:
                         cmd_q = q_target
                         cmd_dq = np.zeros(self.num_dofs)
                         cmd_tau = np.zeros(self.num_dofs)
+                        
+                        reset_qpos = None
+                        reset_qvel = None
+                        if getattr(self, "need_reset_simulation", False):
+                            self.need_reset_simulation = False
+                            if self.state_processor.motion_data is not None:
+                                try:
+                                    motion_data = self.state_processor.motion_data
+                                    if self.state_processor.motion_backend == "raw_npz":
+                                        base_pos = motion_data.body_pos_w[0, 0, 0]
+                                        base_quat = motion_data.body_quat_w[0, 0, 0]
+                                    else:
+                                        base_pos = self.robot_cfg.default_qpos[:3]
+                                        # print(base_pos,motion_data.body_pos_w[0, 0, 0])
+                                        #base_quat = self.robot_cfg.default_qpos[3:7]
+                                    
+                                    # reset_qpos layout: base_pos (3), base_quat (4), joint_pos (num_dofs)
+                                    reset_qpos = np.zeros(self.num_dofs + 7, dtype=np.float32)
+                                    reset_qpos[:3] = base_pos
+                                    reset_qpos[3:7] = base_quat
+                                    reset_qpos[7:] = self.align_target_joint_pos
+                                    
+                                    # reset_qvel layout: base_lin_vel (3), base_ang_vel (3), joint_vel (num_dofs)
+                                    reset_qvel = np.zeros(self.num_dofs + 6, dtype=np.float32)
+                                    logger.info(f"Simulation reset requested: pos={base_pos}, quat={base_quat}")
+                                except Exception as exc:
+                                    logger.warning(f"Failed to prepare reset pose: {exc}")
 
                     with ScopedTimer(
                         "rl_policy.step.rule_based_control_flow.send_command"
                     ) as send_command_timer:
-                        self.action_manager.send_command(cmd_q, cmd_dq, cmd_tau)
+                        self.action_manager.send_command(cmd_q, cmd_dq, cmd_tau, reset_qpos, reset_qvel)
 
         elapsed = step_timer.last_time
         if elapsed > self.rl_dt:
