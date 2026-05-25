@@ -1,0 +1,271 @@
+# Jaka robot policy config — migrated from deploy_mujoco_history_jakamini.py
+# Policy: latest35knew.onnx
+# Motion: raw NPZ with IsaacLab joint order
+# Obs: 5-frame stack, feature-major, 630-dim total
+
+observation:
+  obs:
+    jaka_obs_stack:
+      _target_: jaka_frame_stack
+      anchor_body_index: 3       # waist_yaw_Link in IsaacLab BFS order
+      ang_vel_scale: 0.25
+      joint_vel_scale: 0.05
+
+# MuJoCo joint order (from Khan_mini_simplified XML)
+joint_names_simulation:
+- Left_hip_pitch_joint
+- Left_hip_roll_joint
+- Left_hip_yaw_joint
+- Left_knee_joint
+- Left_ankle_pitch_joint
+- Left_ankle_roll_joint
+- Right_hip_pitch_joint
+- Right_hip_roll_joint
+- Right_hip_yaw_joint
+- Right_knee_joint
+- Right_ankle_pitch_joint
+- Right_ankle_roll_joint
+- waist_yaw_joint
+- Left_shoulder_pitch_joint
+- Left_shoulder_roll_joint
+- Left_shoulder_yaw_joint
+- Left_elbow_joint
+- Left_wrist_roll_joint
+- Left_wrist_yaw_joint
+- Right_shoulder_pitch_joint
+- Right_shoulder_roll_joint
+- Right_shoulder_yaw_joint
+- Right_elbow_joint
+- Right_wrist_roll_joint
+- Right_wrist_yaw_joint
+- Neck_yaw_joint
+- Neck_pitch_joint
+
+# MuJoCo body order (from Khan_mini_simplified XML)
+body_names_simulation:
+- base_link
+- Left_hip_pitch_Link
+- Left_hip_roll_Link
+- Left_hip_yaw_Link
+- Left_knee_Link
+- Left_ankle_pitch_Link
+- Left_ankle_roll_Link
+- Right_hip_pitch_Link
+- Right_hip_roll_Link
+- Right_hip_yaw_Link
+- Right_knee_Link
+- Right_ankle_pitch_Link
+- Right_ankle_roll_Link
+- waist_yaw_Link
+- Left_shoulder_pitch_Link
+- Left_shoulder_roll_Link
+- Left_shoulder_yaw_Link
+- Left_elbow_Link
+- Left_wrist_roll_Link
+- Left_wrist_yaw_Link
+- Right_shoulder_pitch_Link
+- Right_shoulder_roll_Link
+- Right_shoulder_yaw_Link
+- Right_elbow_Link
+- Right_wrist_roll_Link
+- Right_wrist_yaw__Link
+- Neck_yaw_Link
+- Neck_pitch_Link
+
+# Policy action order — IsaacLab order (the order the ONNX model outputs actions)
+policy_joint_names:
+- Left_hip_pitch_joint
+- Right_hip_pitch_joint
+- waist_yaw_joint
+- Left_hip_roll_joint
+- Right_hip_roll_joint
+- Left_shoulder_pitch_joint
+- Neck_yaw_joint
+- Right_shoulder_pitch_joint
+- Left_hip_yaw_joint
+- Right_hip_yaw_joint
+- Left_shoulder_roll_joint
+- Neck_pitch_joint
+- Right_shoulder_roll_joint
+- Left_knee_joint
+- Right_knee_joint
+- Left_shoulder_yaw_joint
+- Right_shoulder_yaw_joint
+- Left_ankle_pitch_joint
+- Right_ankle_pitch_joint
+- Left_elbow_joint
+- Right_elbow_joint
+- Left_ankle_roll_joint
+- Right_ankle_roll_joint
+- Left_wrist_roll_joint
+- Right_wrist_roll_joint
+- Left_wrist_yaw_joint
+- Right_wrist_yaw_joint
+
+# PD gains (from deploy script stiffness_dict / damping_dict)
+joint_kp:
+  .*_hip_pitch_joint|.*_hip_roll_joint|.*_hip_yaw_joint|.*_knee_joint: 187.0
+  .*_ankle_pitch_joint: 100.0
+  .*_ankle_roll_joint: 50.0
+  waist_yaw_joint: 187.0
+  .*_shoulder_pitch_joint|.*_shoulder_roll_joint: 102.0
+  .*_shoulder_yaw_joint|.*_elbow_joint: 40.8
+  .*_wrist_roll_joint|.*_wrist_yaw_joint: 6.7
+  Neck_yaw_joint: 6.7
+  Neck_pitch_joint: 6.7
+
+joint_kd:
+  .*_hip_pitch_joint|.*_hip_roll_joint|.*_hip_yaw_joint|.*_knee_joint: 18.7
+  .*_ankle_pitch_joint: 2.0
+  .*_ankle_roll_joint: 0.5
+  waist_yaw_joint: 18.7
+  .*_shoulder_pitch_joint|.*_shoulder_roll_joint: 10.2
+  .*_shoulder_yaw_joint|.*_elbow_joint: 4.0
+  .*_wrist_roll_joint|.*_wrist_yaw_joint: 0.67
+  Neck_yaw_joint: 0.67
+  Neck_pitch_joint: 0.67
+
+# Default standing pose (only non-zero joints)
+default_joint_pos:
+  Left_shoulder_roll_joint: -1.57
+  Left_elbow_joint: 1.57
+  Left_wrist_yaw_joint: 0.3
+  Right_shoulder_roll_joint: -1.57
+  Right_elbow_joint: 1.57
+  Right_wrist_yaw_joint: 0.3
+
+# Uniform action scale for all joints
+action_scale: 0.5
+
+# Clip raw policy action to [-5, 5] before scaling (from deploy script)
+action_clip: 5.0
+
+# Motion configuration
+motion:
+  motion_backend: raw_npz
+  motion_path: jaka_data/dance1_subject2/motion.npz
+  future_steps:
+  - 0
+
+  # IsaacLab joint order — matches NPZ data layout
+  npz_joint_names:
+  - Left_hip_pitch_joint
+  - Right_hip_pitch_joint
+  - waist_yaw_joint
+  - Left_hip_roll_joint
+  - Right_hip_roll_joint
+  - Left_shoulder_pitch_joint
+  - Neck_yaw_joint
+  - Right_shoulder_pitch_joint
+  - Left_hip_yaw_joint
+  - Right_hip_yaw_joint
+  - Left_shoulder_roll_joint
+  - Neck_pitch_joint
+  - Right_shoulder_roll_joint
+  - Left_knee_joint
+  - Right_knee_joint
+  - Left_shoulder_yaw_joint
+  - Right_shoulder_yaw_joint
+  - Left_ankle_pitch_joint
+  - Right_ankle_pitch_joint
+  - Left_elbow_joint
+  - Right_elbow_joint
+  - Left_ankle_roll_joint
+  - Right_ankle_roll_joint
+  - Left_wrist_roll_joint
+  - Right_wrist_roll_joint
+  - Left_wrist_yaw_joint
+  - Right_wrist_yaw_joint
+
+  # IsaacLab BFS body order — matches NPZ body_pos_w layout
+  npz_body_names:
+  - base_link
+  - Left_hip_pitch_Link
+  - Right_hip_pitch_Link
+  - waist_yaw_Link
+  - Left_hip_roll_Link
+  - Right_hip_roll_Link
+  - Left_shoulder_pitch_Link
+  - Neck_yaw_Link
+  - Right_shoulder_pitch_Link
+  - Left_hip_yaw_Link
+  - Right_hip_yaw_Link
+  - Left_shoulder_roll_Link
+  - Neck_pitch_Link
+  - Right_shoulder_roll_Link
+  - Left_knee_Link
+  - Right_knee_Link
+  - Left_shoulder_yaw_Link
+  - Right_shoulder_yaw_Link
+  - Left_ankle_pitch_Link
+  - Right_ankle_pitch_Link
+  - Left_elbow_Link
+  - Right_elbow_Link
+  - Left_ankle_roll_Link
+  - Right_ankle_roll_Link
+  - Left_wrist_roll_Link
+  - Right_wrist_roll_Link
+  - Left_wrist_yaw_Link
+  - Right_wrist_yaw__Link
+
+  joint_names:
+  - Left_hip_pitch_joint
+  - Right_hip_pitch_joint
+  - waist_yaw_joint
+  - Left_hip_roll_joint
+  - Right_hip_roll_joint
+  - Left_shoulder_pitch_joint
+  - Neck_yaw_joint
+  - Right_shoulder_pitch_joint
+  - Left_hip_yaw_joint
+  - Right_hip_yaw_joint
+  - Left_shoulder_roll_joint
+  - Neck_pitch_joint
+  - Right_shoulder_roll_joint
+  - Left_knee_joint
+  - Right_knee_joint
+  - Left_shoulder_yaw_joint
+  - Right_shoulder_yaw_joint
+  - Left_ankle_pitch_joint
+  - Right_ankle_pitch_joint
+  - Left_elbow_joint
+  - Right_elbow_joint
+  - Left_ankle_roll_joint
+  - Right_ankle_roll_joint
+  - Left_wrist_roll_joint
+  - Right_wrist_roll_joint
+  - Left_wrist_yaw_joint
+  - Right_wrist_yaw_joint
+
+  body_names:
+  - base_link
+  - Left_hip_pitch_Link
+  - Right_hip_pitch_Link
+  - waist_yaw_Link
+  - Left_hip_roll_Link
+  - Right_hip_roll_Link
+  - Left_shoulder_pitch_Link
+  - Neck_yaw_Link
+  - Right_shoulder_pitch_Link
+  - Left_hip_yaw_Link
+  - Right_hip_yaw_Link
+  - Left_shoulder_roll_Link
+  - Neck_pitch_Link
+  - Right_shoulder_roll_Link
+  - Left_knee_Link
+  - Right_knee_Link
+  - Left_shoulder_yaw_Link
+  - Right_shoulder_yaw_Link
+  - Left_ankle_pitch_Link
+  - Right_ankle_pitch_Link
+  - Left_elbow_Link
+  - Right_elbow_Link
+  - Left_ankle_roll_Link
+  - Right_ankle_roll_Link
+  - Left_wrist_roll_Link
+  - Right_wrist_roll_Link
+  - Left_wrist_yaw_Link
+  - Right_wrist_yaw__Link
+
+  anchor_body_name: waist_yaw_Link
+  root_body_name: base_link
