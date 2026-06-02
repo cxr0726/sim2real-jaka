@@ -202,11 +202,9 @@ class jaka_frame_stack(Observation):
 
             # Robot's current anchor body orientation (waist_yaw_Link)
             # waist_yaw_Link is rotated by waist_yaw_joint (index 12 in MuJoCo order) relative to root
-            robot_quat = self.state_processor.root_quat_w.copy()
-            waist_yaw_angle = self.state_processor.joint_pos[12]
-            half_angle = waist_yaw_angle * 0.5
-            rz = np.array([np.cos(half_angle), 0.0, 0.0, np.sin(half_angle)], dtype=np.float32)
-            robot_anchor_quat = _quat_mul_single(robot_quat, rz)
+            # sp.root_quat_w is already the waist_yaw_Link quaternion
+            # (read directly from the IMU framequat sensor in bridge.py)
+            robot_anchor_quat = self.state_processor.root_quat_w.copy()
             robot_init_yaw = _yaw_quat_single(robot_anchor_quat)
 
             self.ref_to_robot_quat_init = _quat_mul_single(robot_init_yaw, ref_init_yaw_inv)
@@ -254,11 +252,9 @@ class jaka_frame_stack(Observation):
 
         # ── Anchor Orientation (6) ──
         # motion_anchor_ori_b_future: relative anchor orientation as rot6d
-        robot_quat = sp.root_quat_w.copy()
-        waist_yaw_angle = sp.joint_pos[12]
-        half_angle = waist_yaw_angle * 0.5
-        rz = np.array([np.cos(half_angle), 0.0, 0.0, np.sin(half_angle)], dtype=np.float32)
-        robot_anchor_quat = _quat_mul_single(robot_quat, rz)
+        # sp.root_quat_w is already the waist_yaw_Link quaternion
+        # (read directly from the IMU framequat sensor in bridge.py)
+        robot_anchor_quat = sp.root_quat_w.copy()
 
         future_anchor_quat_w = _quat_mul_single(self.ref_to_robot_quat_init, ref_anchor_quat)
         ori_b = _subtract_frame_transforms_q(robot_anchor_quat, future_anchor_quat_w)

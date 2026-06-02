@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ZMQ viewer for retargeted G1 poses.
+ZMQ viewer for retargeted robot poses.
 
 Subscribe to a live motion stream published by pico_retarget_pub.py and
 render the robot in a MuJoCo viewer window.
@@ -123,7 +123,7 @@ def _parse_xrobot_body_payload(payload: dict[str, object]) -> Optional[XRobotBod
     )
 
 
-class NativeG1Viewer:
+class NativeRobotViewer:
     def __init__(self, robot_cfg: RobotCfg) -> None:
         self.robot_cfg = robot_cfg
         self.mjcf_path = self.robot_cfg.resolve_mjcf_path()
@@ -237,7 +237,7 @@ class ViewerArgs:
     """Receive a ZMQ motion stream or motion.npz clip and visualize it in MuJoCo."""
 
     robot: str = "g1"
-    motion_backend: Literal["zmq", "npz"] = "zmq"
+    motion_backend: Literal["zmq", "npz", "pkl"] = "zmq"
     connect: str = "tcp://127.0.0.1:28701"
     motion_path: str | None = None
     viewer_hz: float = 30.0
@@ -247,18 +247,33 @@ class ViewerArgs:
 
 def run_viewer(args: ViewerArgs) -> None:
     robot_cfg = get_robot_cfg(args.robot)
-    viewer = NativeG1Viewer(robot_cfg)
+    viewer = NativeRobotViewer(robot_cfg)
     mjcf_path = robot_cfg.resolve_mjcf_path()
     mjcf_root_body_name = resolve_mjcf_root_body_name(mjcf_path)
     mjcf_joint_names = resolve_mjcf_joint_names(mjcf_path)
+
+    backend = args.motion_backend
+    if args.motion_path is not None and backend == "zmq":
+        if args.motion_path.endswith(".pkl"):
+            backend = "pkl"
+        elif args.motion_path.endswith(".npz"):
+            backend = "npz"
+
     try:
-        if args.motion_backend == "npz":
+        if backend == "npz":
             run_npz_viewer(
                 args,
                 robot_cfg,
                 viewer,
                 mjcf_root_body_name,
                 mjcf_joint_names,
+            )
+        elif backend == "pkl":
+            from sim2real.teleop.realtime_viewer_pkl import run_pkl_viewer
+            run_pkl_viewer(
+                args,
+                robot_cfg,
+                viewer,
             )
         else:
             run_zmq_viewer(
@@ -275,7 +290,7 @@ def run_viewer(args: ViewerArgs) -> None:
 def run_zmq_viewer(
     args: ViewerArgs,
     robot_cfg: RobotCfg,
-    viewer: NativeG1Viewer,
+    viewer: NativeRobotViewer,
     mjcf_root_body_name: str,
     mjcf_joint_names: tuple[str, ...],
 ) -> None:
@@ -348,7 +363,7 @@ def run_zmq_viewer(
 def run_npz_viewer(
     args: ViewerArgs,
     robot_cfg: RobotCfg,
-    viewer: NativeG1Viewer,
+    viewer: NativeRobotViewer,
     mjcf_root_body_name: str,
     mjcf_joint_names: tuple[str, ...],
 ) -> None:
@@ -390,6 +405,7 @@ def run_npz_viewer(
     frame_idx = 0
     try:
         while viewer.is_running():
+            
             qpos = motion_to_qpos(
                 body_pos_w[frame_idx],
                 body_quat_w[frame_idx],

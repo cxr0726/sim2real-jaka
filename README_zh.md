@@ -11,14 +11,15 @@ Full documentation: [https://egalahad.github.io/sim2real/](https://egalahad.gith
 ## 快速开始
 
 ```bash
-uv sync
+# uv sync
 ```
 
 运行离线动作跟踪（sim2sim）：
 
 ```bash
-uv run sim2real/sim_env/base_sim.py --robot g1
-uv run sim2real/rl_policy/tracking.py \
+conda activate teleop
+python sim2real/sim_env/base_sim.py --robot g1
+python sim2real/rl_policy/tracking.py \
   --robot g1 \
   --policy_config checkpoints/lafan-aa/policy-ec592bb4_lafan_100style_student-5000.yaml
 ```

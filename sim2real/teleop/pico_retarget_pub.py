@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
+import pickle
 import time
 from typing import Literal, Optional
 
@@ -37,6 +39,23 @@ from sim2real.config.robots.base import (
 from sim2real.utils.common import PORTS, PicoControllerStateMessage
 from sim2real.utils.math import quat_conjugate, quat_mul, quat_rotate_inverse_numpy, quat_rotate_numpy, yaw_quat
 from sim2real.utils.profiling import ScopedTimer
+
+
+# Map sim2real robot names to GMR (General Motion Retargeting) identifiers
+_SIM2REAL_TO_GMR_ROBOT = {
+    "g1": "unitree_g1",
+    "jaka": "jaka_mini",
+}
+
+
+def _gmr_robot_name(sim2real_name: str) -> str:
+    key = str(sim2real_name).strip().lower()
+    if key not in _SIM2REAL_TO_GMR_ROBOT:
+        raise ValueError(
+            f"No GMR mapping for robot '{sim2real_name}'. "
+            f"Available: {list(_SIM2REAL_TO_GMR_ROBOT.keys())}"
+        )
+    return _SIM2REAL_TO_GMR_ROBOT[key]
 
 
 BODY_POSE_TIMER_NAME = "pico_retarget_pub.body_pose_dict_from_streamer"
@@ -203,9 +222,10 @@ class LiveRetargetPublisher:
 
         self.rate = RateLimiter(frequency=self.publish_hz, warn=True)
         self.streamer = XRobotStreamer()
+        gmr_robot = _gmr_robot_name(args.robot)
         self.retarget = GMR(
             src_human="xrobot",
-            tgt_robot="unitree_g1",
+            tgt_robot=gmr_robot,
             actual_human_height=float(args.actual_human_height),
             verbose=bool(args.verbose),
         )
@@ -219,7 +239,7 @@ class LiveRetargetPublisher:
         expected_qpos_size = self.robot_cfg.qpos_size
         if self.retarget.configuration.model.nq != expected_qpos_size:
             print(
-                "[publish] warning: G1 MJCF qpos size mismatch "
+                f"[publish] warning: {args.robot} MJCF qpos size mismatch "
                 f"(model.nq={self.retarget.configuration.model.nq}, expected={expected_qpos_size})"
             )
 
@@ -253,14 +273,41 @@ class LiveRetargetPublisher:
         self._controller_sock.setsockopt(zmq.CONFLATE, 1)
         self._controller_sock.bind(args.controller_bind)
 
+        self.is_recording = False
+        self.recording_buffer = {
+            "root_pos": [],
+            "root_rot": [],
+            "dof_pos": [],
+        }
+        self.recording_start_time = 0.0
+        self._a_button_was_pressed = False
+        self.save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "record_data")
+        self.record_episode_idx = 0
+        if self.args.record:
+            os.makedirs(self.save_dir, exist_ok=True)
+            print(f"[Record] Data recording directory ready: {self.save_dir}")
+            existing_indices = []
+            if os.path.exists(self.save_dir):
+                for f in os.listdir(self.save_dir):
+                    if f.startswith("pico_record_") and f.endswith(".pkl"):
+                        try:
+                            idx = int(f.split("_")[-1].split(".")[0])
+                            existing_indices.append(idx)
+                        except ValueError:
+                            pass
+            if existing_indices:
+                self.record_episode_idx = max(existing_indices) + 1
+            print(f"[Record] Next record episode index: {self.record_episode_idx}")
+
     def _resolve_joint_qpos_indices(self) -> list[int]:
         model = self.retarget.configuration.model
         joint_qpos_indices: list[int] = []
         for joint_name in self.robot_cfg.joint_names:
             joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
             if joint_id < 0:
-                raise ValueError(f"Failed to resolve joint name in MJCF: {joint_name}")
-            joint_qpos_indices.append(int(model.jnt_qposadr[joint_id]))
+                joint_qpos_indices.append(-1)
+            else:
+                joint_qpos_indices.append(int(model.jnt_qposadr[joint_id]))
         return joint_qpos_indices
 
     def _resolve_body_ids(self) -> list[int]:
@@ -281,10 +328,26 @@ class LiveRetargetPublisher:
         return human_to_robot_body_name
 
     def _pose_arrays_from_qpos(self, qpos: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        data = mujoco.MjData(self.retarget.configuration.model)
-        data.qpos[:] = np.asarray(qpos, dtype=np.float32).reshape(-1)
-        mujoco.mj_forward(self.retarget.configuration.model, data)
-        joint_pos = np.asarray(data.qpos[self.joint_qpos_indices], dtype=np.float32)
+        model = self.retarget.configuration.model
+        data = mujoco.MjData(model)
+        
+        qpos_arr = np.asarray(qpos, dtype=np.float32).reshape(-1)
+        gmr_qpos = np.zeros(model.nq, dtype=np.float32)
+        gmr_qpos[0:7] = qpos_arr[0:7]
+        for i, qpos_adr in enumerate(self.joint_qpos_indices):
+            if qpos_adr != -1:
+                gmr_qpos[qpos_adr] = qpos_arr[7 + i]
+                
+        data.qpos[:] = gmr_qpos
+        mujoco.mj_forward(model, data)
+        
+        joint_pos = np.zeros(len(self.robot_cfg.joint_names), dtype=np.float32)
+        for i, qpos_adr in enumerate(self.joint_qpos_indices):
+            if qpos_adr != -1:
+                joint_pos[i] = data.qpos[qpos_adr]
+            else:
+                joint_pos[i] = self.robot_cfg.default_qpos[7 + i]
+                
         body_pos_w = np.asarray(data.xpos[self.body_ids], dtype=np.float32)
         body_quat_w = np.asarray(data.xquat[self.body_ids], dtype=np.float32)
         return joint_pos, body_pos_w, body_quat_w
@@ -317,7 +380,7 @@ class LiveRetargetPublisher:
                         f"{self.min_link_height_offset:.6f} m"
                     )
             z_offset = self.min_link_height_offset
-
+        # print(z_offset,strategy,)
         body_pose_dict_adj: dict[str, list[np.ndarray]] = {}
         for body_name, pose in body_pose_dict.items():
             body_pos = np.asarray(pose[0], dtype=np.float32).copy()
@@ -407,7 +470,7 @@ class LiveRetargetPublisher:
         qpos[3:7] = pelvis_quat_yaw.copy()
         return qpos
 
-    def _poll_pause_toggle(self) -> bool:
+    def _poll_pause_toggle(self) -> Optional[PicoControllerStateMessage]:
         with ScopedTimer(POLL_TIMER_NAME):
             try:
                 controller_data = self.streamer.get_controller_data()
@@ -416,19 +479,60 @@ class LiveRetargetPublisher:
                 if now - self.last_stream_wait_log_monotonic > 2.0:
                     print(f"[Info] Waiting for PICO controller data... ({exc})")
                     self.last_stream_wait_log_monotonic = now
-                return False
+                return None
 
             controller_state = _pico_controller_state_from_data(controller_data)
             self._latest_controller_t_ns = int(controller_state.timestamp_ns)
             self._publish_controller_state(controller_state)
 
-            return controller_state.X
+            return controller_state
 
     def _publish_controller_state(self, controller_state: PicoControllerStateMessage) -> None:
         try:
             self._controller_sock.send(controller_state.to_bytes(), flags=zmq.NOBLOCK)
         except zmq.Again:
             pass
+
+    def _start_recording(self) -> None:
+        """Start a new recording episode, resetting buffer."""
+        print(f"--- Start Recording Episode {self.record_episode_idx} ---")
+        self.recording_buffer = {
+            "root_pos": [],
+            "root_rot": [],
+            "dof_pos": [],
+        }
+        self.recording_start_time = time.time()
+
+    def _save_recording(self) -> None:
+        """End the current recording episode and save as a pickle file."""
+        duration = time.time() - self.recording_start_time
+        num_frames = len(self.recording_buffer["root_pos"])
+
+        if num_frames == 0:
+            print("No frames recorded, skipping save.")
+            return
+
+        actual_fps = num_frames / duration if duration > 0 else 0.0
+
+        data_to_save = {
+            "fps": np.float64(actual_fps),
+            "root_pos": np.array(self.recording_buffer["root_pos"]),
+            "root_rot": np.array(self.recording_buffer["root_rot"]),
+            "dof_pos": np.array(self.recording_buffer["dof_pos"]),
+        }
+
+        filename = f"pico_record_{self.record_episode_idx}.pkl"
+        file_path = os.path.join(self.save_dir, filename)
+        try:
+            with open(file_path, "wb") as f:
+                pickle.dump(data_to_save, f)
+            print(
+                f"--- Saved Episode {self.record_episode_idx} to {filename} "
+                f"(Frames: {num_frames}, FPS: {actual_fps:.2f}) ---"
+            )
+            self.record_episode_idx += 1
+        except Exception as e:
+            print(f"Error saving recording: {e}")
 
     def _build_payload(
         self,
@@ -527,7 +631,14 @@ class LiveRetargetPublisher:
 
     def sample_and_retarget(self) -> Optional[dict[str, object]]:
         with ScopedTimer(SAMPLE_TIMER_NAME):
-            x_pressed = self._poll_pause_toggle()
+            controller_state = self._poll_pause_toggle()
+            if controller_state is not None:
+                x_pressed = controller_state.X
+                a_pressed = controller_state.A
+            else:
+                x_pressed = False
+                a_pressed = False
+
             if x_pressed and not self._x_button_was_pressed:
                 self.paused = not self.paused
 
@@ -537,6 +648,15 @@ class LiveRetargetPublisher:
                     self._needs_live_pelvis_init = True
                 print(f"[Info] paused toggled to {self.paused} via PICO X button")
             self._x_button_was_pressed = x_pressed
+
+            if self.args.record:
+                if a_pressed and not self._a_button_was_pressed:
+                    self.is_recording = not self.is_recording
+                    if self.is_recording:
+                        self._start_recording()
+                    else:
+                        self._save_recording()
+                self._a_button_was_pressed = a_pressed
 
             self._maybe_print_mode_hint()
             if self.paused:
@@ -584,6 +704,10 @@ class LiveRetargetPublisher:
                     body_pos_w, body_quat_w = self._canonical_body_arrays_from_pose_dict(robot_body_pose_dict)
                     joint_pos = np.full((len(self.robot_cfg.joint_names),), np.nan, dtype=np.float32)
                     qpos = self._skip_retarget_qpos_from_scaled_human_data(processed_human_data)
+                if self.is_recording and qpos is not None:
+                    self.recording_buffer["root_pos"].append(qpos[:3].copy())
+                    self.recording_buffer["root_rot"].append(qpos[3:7].copy())
+                    self.recording_buffer["dof_pos"].append(qpos[7:].copy())
                 return self._build_payload(
                     source_smplx_t_ns=int(source_smplx_t_ns),
                     body_pos_w=body_pos_w,
@@ -596,13 +720,30 @@ class LiveRetargetPublisher:
                 configuration_data = self.retarget.configuration.data
                 body_pos_w = np.asarray(configuration_data.xpos[self.body_ids], dtype=np.float32)
                 body_quat_w = np.asarray(configuration_data.xquat[self.body_ids], dtype=np.float32)
-                joint_pos = np.asarray(configuration_data.qpos[self.joint_qpos_indices], dtype=np.float32)
+                
+                joint_pos = np.zeros(len(self.robot_cfg.joint_names), dtype=np.float32)
+                for i, qpos_adr in enumerate(self.joint_qpos_indices):
+                    if qpos_adr != -1:
+                        joint_pos[i] = configuration_data.qpos[qpos_adr]
+                    else:
+                        joint_pos[i] = self.robot_cfg.default_qpos[7 + i]
+                
+                qpos = np.asarray(self.robot_cfg.default_qpos, dtype=np.float32).copy()
+                qpos[0:7] = configuration_data.qpos[0:7]
+                for i, qpos_adr in enumerate(self.joint_qpos_indices):
+                    if qpos_adr != -1:
+                        qpos[7 + i] = configuration_data.qpos[qpos_adr]
+                        
+                if self.is_recording and qpos is not None:
+                    self.recording_buffer["root_pos"].append(qpos[:3].copy())
+                    self.recording_buffer["root_rot"].append(qpos[3:7].copy())
+                    self.recording_buffer["dof_pos"].append(qpos[7:].copy())
                 return self._build_payload(
                     source_smplx_t_ns=int(source_smplx_t_ns),
                     body_pos_w=body_pos_w,
                     body_quat_w=body_quat_w,
                     joint_pos=joint_pos,
-                    qpos=np.asarray(configuration_data.qpos, dtype=np.float32),
+                    qpos=qpos,
                     xrobot_frame=xrobot_frame,
                 )
 
@@ -668,6 +809,7 @@ class PublisherArgs:
     min_link_height_align_strategy: Literal["none", "per_frame", "bootstrap"] = "bootstrap"
     min_link_height_bootstrap_frames: int = 30
     verbose: bool = False
+    record: bool = False
 
 
 if __name__ == "__main__":

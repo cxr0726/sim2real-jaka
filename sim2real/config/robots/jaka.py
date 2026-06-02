@@ -196,6 +196,7 @@ JAKA_CFG = RobotCfg(
         0.0, 0.0
     ),
     root_joint_names=("base_joint", "floating_base_joint", "pelvis_root"),
+    imu_site_name="waist_imu",
     viewer_track_body_names=("base_link",),
     elastic_band_attach_body_names=("waist_yaw_Link", "base_link"),
 )

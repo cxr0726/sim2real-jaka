@@ -40,3 +40,27 @@ uv --project venv/teleop run sim2real/teleop/realtime_viewer.py \
   --motion_backend npz \
   --motion_path g1_motion_YYYYMMDD_HHMMSS/motion.npz
 ```
+
+## 4. Teleoperation Recording (using Pico Controller A Button)
+
+If you start `pico_retarget_pub.py` with the `--record` option, you can directly record the retargeted motion stream from the Pico controller:
+
+```bash
+uv --project venv/teleop run sim2real/teleop/pico_retarget_pub.py \
+  --bind tcp://*:28701 \
+  --publish_hz 50 \
+  --actual_human_height 1.80 \
+  --robot jaka \
+  --record
+```
+
+- Press **Button A** on the right controller to start recording.
+- Press **Button A** again to stop recording. The motion data is saved to `sim2real/teleop/record_data/pico_record_X.pkl`.
+
+To play back and visualize the recorded PKL file:
+
+```bash
+uv --project venv/teleop run python sim2real/teleop/realtime_viewer.py \
+  --robot jaka \
+  --motion_path sim2real/teleop/record_data/pico_record_X.pkl
+```

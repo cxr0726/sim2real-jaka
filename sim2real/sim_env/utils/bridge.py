@@ -87,6 +87,29 @@ class SimulationBridge:
         self.root_qpos_adr = self.mj_model.jnt_qposadr[root_joint_idx]
         self.root_qvel_adr = self.mj_model.jnt_dofadr[root_joint_idx]
 
+         # Look up gyro sensor attached to imu_site_name (if configured)
+        self.imu_gyro_adr: int | None = None
+        self.imu_quat_adr: int | None = None
+        imu_site = self.robot_cfg.imu_site_name
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",imu_site)
+        if imu_site:
+            for i in range(self.mj_model.nsensor):
+                s = self.mj_model.sensor(i)
+                if s.objtype.item() != mujoco.mjtObj.mjOBJ_SITE:
+                    continue
+                if self.mj_model.site(s.objid.item()).name == imu_site:
+                    if s.type.item() == mujoco.mjtSensor.mjSENS_GYRO:
+                        self.imu_gyro_adr = self.mj_model.sensor_adr[i]
+                    elif s.type.item() == mujoco.mjtSensor.mjSENS_FRAMEQUAT:
+                        self.imu_quat_adr = self.mj_model.sensor_adr[i]
+            print(self.imu_gyro_adr,"aaaaaaaaaaaaaaaaaa",self.imu_quat_adr)
+            if self.imu_gyro_adr is None:
+                logger.warning(
+                    f"No gyro sensor found at IMU site '{imu_site}'")
+            if self.imu_quat_adr is None:
+                logger.warning(f"No framequat sensor found at IMU site '{imu_site}'")
+
+
         joint_effort_limit_dict = self.robot_cfg.joint_effort_limit
         joint_indices, joint_names_matched, joint_effort_limit = (
             resolve_matching_names_values(
@@ -194,11 +217,24 @@ class SimulationBridge:
             joint_vel_full[unitree_idx] = joint_vel_partial[mjc_idx]
             joint_tau_full[unitree_idx] = joint_torque_partial[mjc_idx]
 
-        # quaternion: w, x, y, z
-        root_quat_w = self.mj_data.qpos[self.root_qpos_adr + 3:self.root_qpos_adr+7]
+        # # quaternion: w, x, y, z
+        # root_quat_w = self.mj_data.qpos[self.root_qpos_adr + 3:self.root_qpos_adr+7]
+                # quaternion: w, x, y, z — from IMU framequat sensor if available
+        if self.imu_quat_adr is not None:
+            root_quat_w = self.mj_data.sensordata[self.imu_quat_adr:self.imu_quat_adr + 4].copy()
+        else:
+            root_quat_w = self.mj_data.qpos[self.root_qpos_adr + 3:self.root_qpos_adr+7]
 
-        # angular velocity: x, y, z
-        root_ang_vel_b = self.mj_data.qvel[self.root_qvel_adr + 3:self.root_qvel_adr+6]
+
+        # # angular velocity: x, y, z
+        # root_ang_vel_b = self.mj_data.qvel[self.root_qvel_adr + 3:self.root_qvel_adr+6]
+                # angular velocity: x, y, z — from waist IMU gyro sensor if available
+        if self.imu_gyro_adr is not None:
+            root_ang_vel_b = self.mj_data.sensordata[self.imu_gyro_adr:self.imu_gyro_adr + 3].copy()
+        else:
+            root_ang_vel_b = self.mj_data.qvel[self.root_qvel_adr + 3:self.root_qvel_adr+6]
+
+
         low_state_msg = LowStateMessage(
             quaternion=root_quat_w,
             gyroscope=root_ang_vel_b,

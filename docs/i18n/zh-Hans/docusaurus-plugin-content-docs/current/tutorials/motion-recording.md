@@ -37,3 +37,27 @@ uv --project venv/teleop run sim2real/teleop/realtime_viewer.py \
   --motion_backend npz \
   --motion_path g1_motion_YYYYMMDD_HHMMSS/motion.npz
 ```
+
+## 4. 手柄直接录制（使用 Pico 手柄 A 键）
+
+如果在启动 `pico_retarget_pub.py` 时加入 `--record` 选项，可以直接从 Pico 手柄控制录制 retargeted 运动流：
+
+```bash
+uv --project venv/teleop run sim2real/teleop/pico_retarget_pub.py \
+  --bind tcp://*:28701 \
+  --publish_hz 50 \
+  --actual_human_height 1.80 \
+  --robot jaka \
+  --record
+```
+
+- 按下右侧手柄的 **A 键** 开始录制。
+- 再次按下 **A 键** 结束录制，运动数据会以 Pickle 文件保存到 `sim2real/teleop/record_data/pico_record_X.pkl`。
+
+要可视化播放已保存的 PKL 文件，可以直接运行：
+
+```bash
+uv --project venv/teleop run sim2real/teleop/realtime_viewer.py \
+  --robot jaka \
+  --motion_path sim2real/teleop/record_data/pico_record_X.pkl
+```

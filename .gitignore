@@ -40,3 +40,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# Teleop record data
+sim2real/teleop/record_data.zip
+sim2real/teleop/record_data/

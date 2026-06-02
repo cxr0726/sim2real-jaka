@@ -146,6 +146,7 @@
         </body>
       </body>
       <body name="waist_yaw_Link" pos="0 0 0.22385">
+        <site name="waist_imu" pos="0 0 0" quat="1 0 0 0"/>
         <inertial pos="-0.000349812 0.00300369 0.024462" quat="0.775234 0.520055 -0.206205 -0.293316" mass="7.33705" diaginertia="0.0162451 0.0149768 0.0117619" />
         <joint name="waist_yaw_joint" pos="0 0 0" axis="0 0 1" range="-2.0071 3.5779" actuatorfrcrange="-120 120" armature="0.03" />
         <geom type="mesh" rgba="0.89804 0.91765 0.92941 1" mesh="waist_yaw_Link" />
@@ -267,6 +268,13 @@
   </asset>
   <worldbody>
     <light pos="1 0 3.5" dir="0 0 -1" directional="true"/>
-    <geom name="floor" pos="0 0 -0.05" size="0 0 0.05" type="plane" material="groundplane"/>
+    <geom name="floor" pos="0 0 -0.025" size="0 0 0.05" type="plane" material="groundplane"/>
   </worldbody>
+  <sensor>
+  <!-- 2. 挂载陀螺仪传感器，用于测量 waist_imu 相对于世界的角速度，并在本地 site 系下投影输出 -->
+  <gyro name="waist_gyro" site="waist_imu"/>
+
+  <!-- 3. 挂载姿态四元数传感器，用于获取 waist_imu 坐标系在世界坐标系下的绝对姿态（WXYZ） -->
+  <framequat name="waist_quat" objtype="site" objname="waist_imu"/>
+  </sensor>
 </mujoco>

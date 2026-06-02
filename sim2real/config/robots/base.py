@@ -59,6 +59,7 @@ class RobotCfg:
         default_factory=lambda: dict(UNITREE_LEGGED_CONST)
     )
     root_joint_names: tuple[str, ...] = ("floating_base_joint", "pelvis_root")
+    imu_site_name: str | None = None
     viewer_track_body_names: tuple[str, ...] = ("pelvis",)
     elastic_band_attach_body_names: tuple[str, ...] = ("torso_link", "base_link")
 
