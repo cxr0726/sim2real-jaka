@@ -117,6 +117,27 @@ class jaka_frame_stack_mf(Observation):
         self._frame_buffer: deque = deque(maxlen=self._STACK_SIZE)
         self._is_first_frame = True
 
+    def _refresh_motion_indices(self) -> None:
+        sp = self.state_processor
+        joint_names = tuple(sp.motion_joint_names)
+        body_names = tuple(sp.motion_body_names)
+        layout = (joint_names, body_names)
+        if hasattr(self, "_cached_motion_layout") and self._cached_motion_layout == layout:
+            return
+        if not joint_names or not body_names:
+            raise ValueError("Motion source names are not ready")
+
+        self._motion_joint_indices = [joint_names.index(name) for name in self.isaaclab_joint_names]
+        
+        motion_cfg = sp.motion_config or {}
+        anchor_body_name = motion_cfg.get("anchor_body_name", "waist_yaw_Link")
+        if anchor_body_name in body_names:
+            self.resolved_anchor_body_index = body_names.index(anchor_body_name)
+        else:
+            self.resolved_anchor_body_index = self.anchor_body_index
+            
+        self._cached_motion_layout = layout
+
     # ── Lifecycle ──────────────────────────────────────────────────────── #
 
     def reset(self):
@@ -127,7 +148,8 @@ class jaka_frame_stack_mf(Observation):
 
         motion_data = self.state_processor.motion_data
         if motion_data is not None:
-            ref_anchor_quat = motion_data.body_quat_w[0, 0, self.anchor_body_index]
+            self._refresh_motion_indices()
+            ref_anchor_quat = motion_data.body_quat_w[0, 0, self.resolved_anchor_body_index]
             ref_init_yaw = _yaw_quat_single(ref_anchor_quat)
             ref_init_yaw_inv = _quat_inv_single(ref_init_yaw)
 
@@ -135,7 +157,7 @@ class jaka_frame_stack_mf(Observation):
             # (read directly from the IMU framequat sensor in bridge.py)
             robot_anchor_quat = self.state_processor.root_quat_w.copy()
             robot_init_yaw = _yaw_quat_single(robot_anchor_quat)
-
+            print("!!!!!!!!!!!!!!!",robot_anchor_quat,ref_anchor_quat)
             self.ref_to_robot_quat_init = _quat_mul_single(robot_init_yaw, ref_init_yaw_inv)
 
     def update(self, data: Dict[str, Any]) -> None:
@@ -182,7 +204,7 @@ class jaka_frame_stack_mf(Observation):
         # Last action
         last_action = data.get("action", np.zeros(self.n_joints, dtype=np.float32))
         obs[60:87] = last_action[:self.n_joints]
-
+        # print(obs[0:7],"obs",obs[60:87])
         return obs
 
     # ── Command (155-dim) ──────────────────────────────────────────────── #
@@ -197,7 +219,8 @@ class jaka_frame_stack_mf(Observation):
         if motion_data is None:
             return np.zeros(self._COMMAND_DIM, dtype=np.float32)
 
-        anchor_idx = self.anchor_body_index
+        self._refresh_motion_indices()
+        anchor_idx = self.resolved_anchor_body_index
 
         # All future anchor positions [NUM_FUTURE_STEPS, 3]
         ref_pos_all = motion_data.body_pos_w[0, :, anchor_idx]
@@ -213,9 +236,9 @@ class jaka_frame_stack_mf(Observation):
 
         root_pos_diff_b = diff_b.reshape(-1)              # 15
         root_z_mf = ref_pos_all[:, 2:3].reshape(-1)       # 5
-
+        # print(anchor_idx,root_z_mf,"mmmmmmm")
         # Joint positions with neck/wrist yaw zeroed (batched)
-        motion_joint_pos = motion_data.joint_pos[0, :, :].copy()  # [5, 27]
+        motion_joint_pos = motion_data.joint_pos[0][:, self._motion_joint_indices].copy()  # [5, 27]
         # motion_joint_pos[:, [6, 11]] = 0
         # motion_joint_pos[:, -2:] = 0
         motion_joint_pos_flat = motion_joint_pos.reshape(-1)      # 135
@@ -237,11 +260,12 @@ class jaka_frame_stack_mf(Observation):
         # (read directly from the IMU framequat sensor in bridge.py)
         robot_anchor_quat = sp.root_quat_w.copy()
 
-        anchor_idx = self.anchor_body_index
+        self._refresh_motion_indices()
+        anchor_idx = self.resolved_anchor_body_index
 
         # All future reference anchor quats [NUM_FUTURE_STEPS, 4]
         ref_quat_all = motion_data.body_quat_w[0, :, anchor_idx]
-
+        #print(self.ref_to_robot_quat_init,"rrr",motion_data.body_pos_w[0, :, anchor_idx])
         # future_anchor_quat_w = ref_to_robot_quat_init * ref_quat_all
         ref_to_robot_init_batch = np.tile(
             self.ref_to_robot_quat_init[None, :], (self._NUM_FUTURE_STEPS, 1)
@@ -271,7 +295,7 @@ class jaka_frame_stack_mf(Observation):
             two_s * (ik - jr),
             two_s * (jk + ir),
         ], axis=-1).reshape(-1)  # [5, 6] → 30
-
+        # print(rot6d,"rrrrrrrrrr",)
         return rot6d.astype(np.float32)
 
     # ── Full observation ───────────────────────────────────────────────── #

@@ -194,6 +194,18 @@ class BasePolicy:
 
         self.policy = policy
 
+        # Warmup the policy model
+        logger.info("Warming up policy model...")
+        try:
+            warmup_dict = {}
+            for key, shape in zip(runtime_module.in_keys, runtime_module.input_shapes):
+                warmup_dict[key] = np.zeros(shape, dtype=np.float32)
+            for _ in range(5):
+                _ = runtime_module(warmup_dict)
+            logger.info("Warmup complete.")
+        except Exception as e:
+            logger.warning(f"Failed to warmup policy model: {e}")
+
     def setup_observations(self, obs_cfg):
         """Setup observations for policy inference"""
         self.observations: Dict[str, ObsGroup] = {}
@@ -366,6 +378,8 @@ class BasePolicy:
                                 return
 
             try:
+                control_mode = self.state_dict.get("control_mode", "zero")
+
                 with ScopedTimer("rl_policy.step.prepare_obs") as prepare_obs_timer:
                     with Timer(self.perf_dict, "prepare_obs"):
                         # Prepare observations
@@ -374,23 +388,29 @@ class BasePolicy:
                         self.state_dict.update(obs_dict)
                         self.state_dict["is_init"] = np.zeros(1, dtype=bool)
 
-                with ScopedTimer("rl_policy.step.policy") as policy_timer:
-                    with Timer(self.perf_dict, "policy"):
-                        # Inference
-                        action, q_target, self.state_dict = self.policy(self.state_dict)
-                        # for key, value in self.state_dict.items():
-                        #     if key.endswith("_ood_ratio"):
-                        #         print(key, value)
-                        # Clip policy action
-                        # action = action.clip(-100, 100)
-                        self.state_dict["action"] = action
-                        self.state_dict["q_target"] = q_target
+                policy_last_time = 0.0
+                if control_mode == "policy":
+                    with ScopedTimer("rl_policy.step.policy") as policy_timer:
+                        with Timer(self.perf_dict, "policy"):
+                            # Inference
+                            action, q_target, self.state_dict = self.policy(self.state_dict)
+                            # for key, value in self.state_dict.items():
+                            #     if key.endswith("_ood_ratio"):
+                            #         print(key, value)
+                            # Clip policy action
+                            # action = action.clip(-100, 100)
+                            self.state_dict["action"] = action
+                            self.state_dict["q_target"] = q_target
+                            policy_last_time = policy_timer.last_time
+                else:
+                    self.state_dict["action"] = np.zeros(self.num_actions, dtype=np.float32)
+                    self.state_dict["q_target"] = self.default_dof_angles.copy()
             except Exception as e:
                 print(f"Error in policy inference: {e}")
                 # print traceback for debugging
                 import traceback
                 traceback.print_exc()
-                self.state_dict["action"] = np.zeros(self.num_actions)
+                self.state_dict["action"] = np.zeros(self.num_actions, dtype=np.float32)
                 return
 
             with ScopedTimer("rl_policy.step.rule_based_control_flow") as rule_based_timer:
@@ -430,11 +450,11 @@ class BasePolicy:
                                     motion_data = self.state_processor.motion_data
                                     if self.state_processor.motion_backend == "raw_npz":
                                         base_pos = motion_data.body_pos_w[0, 0, 0]
-                                        base_quat = motion_data.body_quat_w[0, 0, 0]
+                                        # base_quat = motion_data.body_quat_w[0, 0, 0]
                                     else:
                                         base_pos = self.robot_cfg.default_qpos[:3]
                                         # print(base_pos,motion_data.body_pos_w[0, 0, 0])
-                                        #base_quat = self.robot_cfg.default_qpos[3:7]
+                                        # base_quat = self.robot_cfg.default_qpos[3:7]
                                     
                                     # reset_qpos layout: base_pos (3), base_quat (4), joint_pos (num_dofs)
                                     reset_qpos = np.zeros(self.num_dofs + 7, dtype=np.float32)
@@ -470,7 +490,7 @@ class BasePolicy:
                 process_controllers_timer.last_time * 1000.0,
                 get_low_state_timer.last_time * 1000.0,
                 prepare_obs_timer.last_time * 1000.0,
-                policy_timer.last_time * 1000.0,
+                policy_last_time * 1000.0,
                 rule_based_timer.last_time * 1000.0,
                 select_target_timer.last_time * 1000.0,
                 send_command_timer.last_time * 1000.0,

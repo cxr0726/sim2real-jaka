@@ -2,12 +2,12 @@
 
 ## Python Environments
 
-- Inference / policy / sim work on both PC and onboard Orin uses the root project.
-- Teleop work on both PC and onboard Orin uses `venv/teleop`.
+- Inference / policy / sim work on both PC and onboard Orin uses conda env named `teleop`.
+- Teleop work on both PC and onboard Orin uses conda env named `teleop`.
 - When touching inference/runtime files, verify syntax with the root project when available:
-  `uv run python -m py_compile <files>`
+  `conda run -n teleop python -m py_compile <files>`
 - When touching teleop files, verify syntax with the teleop project when available:
-  `uv --project venv/teleop run python -m py_compile <files>`
+  `conda run -n teleop python -m py_compile <files>`
 
 ## Documentation Sync
 

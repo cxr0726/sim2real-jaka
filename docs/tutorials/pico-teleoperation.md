@@ -8,16 +8,15 @@ This tutorial uses the teleop publisher for live Pico / XR retargeting, the real
 ## 1. Start the Pico retarget publisher
 
 ```bash
-uv --project venv/teleop run python sim2real/teleop/pico_retarget_pub.py \
-  --bind tcp://*:28701 \
-  --publish_hz 50 \
-  --actual_human_height 1.80
+conda activate teleop
+
+python sim2real/teleop/pico_retarget_pub.py   --bind tcp://*:28701 --publish_hz 50 --actual_human_height 1.70 --robot jaka
 ```
 
 ## 2. Inspect the retarget in realtime
 
 ```bash
-uv --project venv/teleop run python sim2real/teleop/realtime_viewer.py --connect tcp://127.0.0.1:28701 --viewer_hz 50
+python sim2real/teleop/realtime_viewer.py --connect tcp://127.0.0.1:28701 --viewer_hz 50
 ```
 
 Keep the viewer open until the retargeted G1 motion looks correct.
@@ -29,17 +28,18 @@ Keep the viewer open until the retargeted G1 motion looks correct.
 Start the MuJoCo execution process:
 
 ```bash
-uv run sim2real/sim_env/base_sim.py --robot g1
+python sim2real/sim_env/base_sim.py --robot jaka --sim_dt 0.002 --decimation 10
 ```
 
 In another terminal, start the tracking policy against the live motion stream:
 
 ```bash
-uv run python sim2real/rl_policy/tracking.py \
-  --robot g1 \
-  --policy_config checkpoints/lafan-aa/policy-ec592bb4_lafan_100style_student-5000.yaml \
-  --motion_backend zmq \
-  --motion_zmq_connect tcp://127.0.0.1:28701
+# uv run python sim2real/rl_policy/tracking.py \
+#   --robot g1 \
+#   --policy_config checkpoints/lafan-aa/policy-ec592bb4_lafan_100style_student-5000.yaml \
+#   --motion_backend zmq \
+#   --motion_zmq_connect tcp://127.0.0.1:28701
+python sim2real/rl_policy/tracking.py --robot jaka --policy_config checkpoints/jaka_mf_v1_dr/latest56k_pico_dr.yaml --motion_backend zmq --motion_zmq_connect tcp://127.0.0.1:28701
 ```
 python sim2real/rl_policy/tracking.py --robot jaka --policy_config checkpoints/jaka_mf_v1/latest25k_mf.yaml --motion_backend zmq --motion_zmq_connect tcp://127.0.0.1:28701
 

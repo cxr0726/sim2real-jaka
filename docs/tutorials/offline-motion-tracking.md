@@ -16,7 +16,7 @@ uv run sim2real/sim_env/base_sim.py --robot g1
 In a second terminal, start the tracking policy:
 
 ```bash
-uv run sim2real/rl_policy/tracking.py \
+uv run python sim2real/rl_policy/tracking.py \
   --robot g1 \
   --policy_config checkpoints/lafan-aa/policy-ec592bb4_lafan_100style_student-5000.yaml
 ```

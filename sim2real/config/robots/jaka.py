@@ -187,7 +187,7 @@ JAKA_CFG = RobotCfg(
     joint_frictionloss={name: 0.01 for name in JAKA_JOINT_NAMES},
     mjcf_path="jaka_data/Khan_mini_simplified/Khan_mini_simplified_new_bigfeet.xml",
     default_qpos=(
-        0.0, 0.0, 0.793, 1.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.65, 1.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         0.0,

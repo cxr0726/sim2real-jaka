@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import os
-import pickle
 import time
 from typing import Literal, Optional
 
@@ -273,32 +271,6 @@ class LiveRetargetPublisher:
         self._controller_sock.setsockopt(zmq.CONFLATE, 1)
         self._controller_sock.bind(args.controller_bind)
 
-        self.is_recording = False
-        self.recording_buffer = {
-            "root_pos": [],
-            "root_rot": [],
-            "dof_pos": [],
-        }
-        self.recording_start_time = 0.0
-        self._a_button_was_pressed = False
-        self.save_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "record_data")
-        self.record_episode_idx = 0
-        if self.args.record:
-            os.makedirs(self.save_dir, exist_ok=True)
-            print(f"[Record] Data recording directory ready: {self.save_dir}")
-            existing_indices = []
-            if os.path.exists(self.save_dir):
-                for f in os.listdir(self.save_dir):
-                    if f.startswith("pico_record_") and f.endswith(".pkl"):
-                        try:
-                            idx = int(f.split("_")[-1].split(".")[0])
-                            existing_indices.append(idx)
-                        except ValueError:
-                            pass
-            if existing_indices:
-                self.record_episode_idx = max(existing_indices) + 1
-            print(f"[Record] Next record episode index: {self.record_episode_idx}")
-
     def _resolve_joint_qpos_indices(self) -> list[int]:
         model = self.retarget.configuration.model
         joint_qpos_indices: list[int] = []
@@ -390,8 +362,7 @@ class LiveRetargetPublisher:
 
     def _capture_paused_qpos(self) -> None:
         with ScopedTimer(PAUSE_CAPTURE_TIMER_NAME):
-            paused_qpos = np.asarray(self.robot_cfg.default_qpos, dtype=np.float32).copy()
-            paused_qpos[:2] = np.asarray(self.latest_qpos[:2], dtype=np.float32)
+            paused_qpos = np.asarray(self.latest_qpos, dtype=np.float32).copy()
             paused_qpos[3:7] = yaw_quat(np.asarray(self.latest_qpos[3:7], dtype=np.float32)).astype(
                 np.float32,
                 copy=False,
@@ -470,7 +441,7 @@ class LiveRetargetPublisher:
         qpos[3:7] = pelvis_quat_yaw.copy()
         return qpos
 
-    def _poll_pause_toggle(self) -> Optional[PicoControllerStateMessage]:
+    def _poll_pause_toggle(self) -> bool:
         with ScopedTimer(POLL_TIMER_NAME):
             try:
                 controller_data = self.streamer.get_controller_data()
@@ -479,60 +450,19 @@ class LiveRetargetPublisher:
                 if now - self.last_stream_wait_log_monotonic > 2.0:
                     print(f"[Info] Waiting for PICO controller data... ({exc})")
                     self.last_stream_wait_log_monotonic = now
-                return None
+                return False
 
             controller_state = _pico_controller_state_from_data(controller_data)
             self._latest_controller_t_ns = int(controller_state.timestamp_ns)
             self._publish_controller_state(controller_state)
 
-            return controller_state
+            return controller_state.X
 
     def _publish_controller_state(self, controller_state: PicoControllerStateMessage) -> None:
         try:
             self._controller_sock.send(controller_state.to_bytes(), flags=zmq.NOBLOCK)
         except zmq.Again:
             pass
-
-    def _start_recording(self) -> None:
-        """Start a new recording episode, resetting buffer."""
-        print(f"--- Start Recording Episode {self.record_episode_idx} ---")
-        self.recording_buffer = {
-            "root_pos": [],
-            "root_rot": [],
-            "dof_pos": [],
-        }
-        self.recording_start_time = time.time()
-
-    def _save_recording(self) -> None:
-        """End the current recording episode and save as a pickle file."""
-        duration = time.time() - self.recording_start_time
-        num_frames = len(self.recording_buffer["root_pos"])
-
-        if num_frames == 0:
-            print("No frames recorded, skipping save.")
-            return
-
-        actual_fps = num_frames / duration if duration > 0 else 0.0
-
-        data_to_save = {
-            "fps": np.float64(actual_fps),
-            "root_pos": np.array(self.recording_buffer["root_pos"]),
-            "root_rot": np.array(self.recording_buffer["root_rot"]),
-            "dof_pos": np.array(self.recording_buffer["dof_pos"]),
-        }
-
-        filename = f"pico_record_{self.record_episode_idx}.pkl"
-        file_path = os.path.join(self.save_dir, filename)
-        try:
-            with open(file_path, "wb") as f:
-                pickle.dump(data_to_save, f)
-            print(
-                f"--- Saved Episode {self.record_episode_idx} to {filename} "
-                f"(Frames: {num_frames}, FPS: {actual_fps:.2f}) ---"
-            )
-            self.record_episode_idx += 1
-        except Exception as e:
-            print(f"Error saving recording: {e}")
 
     def _build_payload(
         self,
@@ -631,14 +561,7 @@ class LiveRetargetPublisher:
 
     def sample_and_retarget(self) -> Optional[dict[str, object]]:
         with ScopedTimer(SAMPLE_TIMER_NAME):
-            controller_state = self._poll_pause_toggle()
-            if controller_state is not None:
-                x_pressed = controller_state.X
-                a_pressed = controller_state.A
-            else:
-                x_pressed = False
-                a_pressed = False
-
+            x_pressed = self._poll_pause_toggle()
             if x_pressed and not self._x_button_was_pressed:
                 self.paused = not self.paused
 
@@ -648,15 +571,6 @@ class LiveRetargetPublisher:
                     self._needs_live_pelvis_init = True
                 print(f"[Info] paused toggled to {self.paused} via PICO X button")
             self._x_button_was_pressed = x_pressed
-
-            if self.args.record:
-                if a_pressed and not self._a_button_was_pressed:
-                    self.is_recording = not self.is_recording
-                    if self.is_recording:
-                        self._start_recording()
-                    else:
-                        self._save_recording()
-                self._a_button_was_pressed = a_pressed
 
             self._maybe_print_mode_hint()
             if self.paused:
@@ -704,10 +618,6 @@ class LiveRetargetPublisher:
                     body_pos_w, body_quat_w = self._canonical_body_arrays_from_pose_dict(robot_body_pose_dict)
                     joint_pos = np.full((len(self.robot_cfg.joint_names),), np.nan, dtype=np.float32)
                     qpos = self._skip_retarget_qpos_from_scaled_human_data(processed_human_data)
-                if self.is_recording and qpos is not None:
-                    self.recording_buffer["root_pos"].append(qpos[:3].copy())
-                    self.recording_buffer["root_rot"].append(qpos[3:7].copy())
-                    self.recording_buffer["dof_pos"].append(qpos[7:].copy())
                 return self._build_payload(
                     source_smplx_t_ns=int(source_smplx_t_ns),
                     body_pos_w=body_pos_w,
@@ -734,10 +644,6 @@ class LiveRetargetPublisher:
                     if qpos_adr != -1:
                         qpos[7 + i] = configuration_data.qpos[qpos_adr]
                         
-                if self.is_recording and qpos is not None:
-                    self.recording_buffer["root_pos"].append(qpos[:3].copy())
-                    self.recording_buffer["root_rot"].append(qpos[3:7].copy())
-                    self.recording_buffer["dof_pos"].append(qpos[7:].copy())
                 return self._build_payload(
                     source_smplx_t_ns=int(source_smplx_t_ns),
                     body_pos_w=body_pos_w,
@@ -809,7 +715,6 @@ class PublisherArgs:
     min_link_height_align_strategy: Literal["none", "per_frame", "bootstrap"] = "bootstrap"
     min_link_height_bootstrap_frames: int = 30
     verbose: bool = False
-    record: bool = False
 
 
 if __name__ == "__main__":

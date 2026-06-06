@@ -492,7 +492,10 @@ if __name__ == "__main__":
     # motion_path ="/home/irev//docker_data/TextOp/TextOpTracker/artifacts/jaka_mini_test2/Uaenet_0664/motion.npz"
     xml_path = "jaka_data/Khan_mini_simplified/Khan_mini_simplified_new_bigfeet.xml"
     # 0352 0890  Data10k-open_homejrhangmr_dataset_pbhc_contact_maskCMU1313_03_posespkl
-    session = ort.InferenceSession(policy_path)
+    sess_options = ort.SessionOptions()
+    sess_options.intra_op_num_threads = 4
+    sess_options.inter_op_num_threads = 2
+    session = ort.InferenceSession(policy_path,sess_options)
     obs_name = session.get_inputs()[0].name
     motion_loader = MotionLoader(motion_path)
     m = mujoco.MjModel.from_xml_path(xml_path)
@@ -566,7 +569,7 @@ if __name__ == "__main__":
                 obs_command, obs_anchor_ori, obs_gravity, obs_ang_vel,
                 obs_dof_pos, obs_dof_vel, obs_last_action
             ], axis=0)
-
+            t0=time.time()
 
             obs_tensor = obs_concat.reshape(1, -1)
             output = session.run(None, {obs_name: obs_tensor})
@@ -575,6 +578,7 @@ if __name__ == "__main__":
             # print(action)
             # print(action)
             target_dof_pos = action[isaaclab_to_mujoco_reindex] * action_scale + default_angles
+            print((time.time()-t0)*1000,"tttttttttttttttt")
             inner_counter = (inner_counter + 1) % motion_loader.T
 
         counter += 1
